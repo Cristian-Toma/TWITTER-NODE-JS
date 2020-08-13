@@ -3,6 +3,8 @@
 const bcrypt = require('bcrypt');
 const User = require('../models/user.model');
 const Tweet = require('../models/tweet.model');
+const Like = require('../models/likes.model');
+const Reply = require('../models/reply.model');
 const jwt = require('../services/jwt');
 const {getAction} = require('twitter-command');
 
@@ -72,36 +74,134 @@ const login = async (args) => {
 
 const listTweets = async (args) => {
   try {
-    const userFound = await User.findOne({ username: args[0] });
-    if (!userFound)
-      return { message: 'NO EXISTE ESE USUARIO' };
-    else {
-      const tweets = await Tweet.find({ creator: userFound._id }).populate(
-        'creator',
-        '-_id username'
-      );
-      if (!tweets) return { message: 'NO PUEDES VER LOS TWEETS' };
-      else if (tweets.length === 0)
-        return { message: `${userFound.username} AUN NO HAY TWEET'S` };
-      else return tweets;
+    if (args[0] === "*") {
+      const allTweets = await Tweet.find({})
+        .populate("creator", "-password -following -followers -name -email")
+        .populate("likes", "-_id -interactors")
+        .populate("replies", "-_id");
+      if (!allTweets) return { message: "Unable to get tweets" };
+      else return allTweets;
+    } else {
+      const userFound = await User.findOne({ username: args[0] });
+      if (!userFound)
+        return { message: "The user with that username doesn't exist" };
+      else {
+        const tweets = await Tweet.find({ creator: userFound._id })
+          .populate("creator", "username")
+          .populate("likes", "-_id -interactors")
+          .populate([
+            {
+              path: "replies",
+              select: "-_id",
+              populate: {
+                path: "author",
+                select: "-_id -password -following -followers -name -email",
+              },
+            },
+          ]);
+
+        if (!tweets) return { message: "Unable to get tweets" };
+        else if (tweets.length === 0)
+          return { message: `${userFound.username} doesn't have tweets yet.` };
+        else return tweets;
+      }
     }
   } catch (err) {
-    return { message: 'ERROR EN EL SERVIDOR' };
+    console.log(err);
+    return { message: "Internal server Error" };
+  }
+
+};
+
+
+
+const doLike = async (id, userId) => {
+  try {
+    const liked = await Like.findOneAndUpdate(
+      { _id: id },
+      { $push: { interactors: userId }, $inc: { likes: 1 } }
+    );
+    if (!liked) return { message: "Error trying to like this tweet" };
+    else return { message: "You like this tweet" };
+  } catch (err) {
+    console.log(err);
+    return { message: "Internal server error" };
   }
 };
 
-const createTweet = async (user, args) => {
+const dislike = async (id, userId) => {
   try {
-    let newTweet = new Tweet();
-    newTweet.creator = user.sub;
-    newTweet.date = new Date();
-    newTweet.content = args[0];
-
-    const newTweetAdded = await (await newTweet.save()).populate('creator','-password -following -followers -email -_id').execPopulate();
-    if (!newTweetAdded) return { message: 'ERROR AL CREAR TU TWEET' };
-    else return newTweetAdded;
+    const disliked = await Like.findOneAndUpdate(
+      { _id: id },
+      { $pull: { interactors: userId }, $inc: { likes: -1 } }
+    );
+    if (!disliked) return { message: "Error trying to dislike this tweet" };
+    else return { message: "You don't like this tweet anymore" };
   } catch (err) {
-    return { message: 'ERROR EN EL SERVIDOR' };
+    console.log(err);
+    return { message: "Internal server error" };
+  }
+};
+
+const like = async (user, args) => {
+  try {
+    const tweet = await Tweet.findById(args[0]);
+    if (!tweet) return { message: "Sorry that tweet doesn't exists" };
+    else {
+      const previusReactions = await Like.findOne({
+        $and: [{ _id: tweet.likes }, { interactors: { _id: user.sub } }],
+      });
+      if (!previusReactions) {
+        const toLike = await Like.findById(tweet.likes);
+        return await doLike(toLike._id, user.sub);
+      } else return await dislike(previusReactions._id, user.sub);
+    }
+  } catch (err) {
+    console.log(err);
+    return { message: "Internal server error" };
+  }
+};
+
+const makeReply = async (user, args) => {
+  try {
+    const newReply = new Reply();
+    const tweetFound = await Tweet.findById(args[1]);
+    if (!tweetFound) return { message: "Sorry, that tweet doesn't exists" };
+    else {
+      newReply.author = user.sub;
+      newReply.content = args[0];
+      const newReplyAdded = await newReply.save();
+      if (!newReplyAdded) return { message: "Error unable to save reply" };
+      else {
+        const addReply = await Tweet.findByIdAndUpdate(
+          tweetFound._id,
+          {
+            $push: { replies: newReplyAdded._id },
+          },
+          { new: true }
+        )
+          .populate(
+            "creator",
+            "-_id -password -following -followers -name -email"
+          )
+          .populate("likes", "-_id -interactors")
+          .populate([
+            {
+              path: "replies",
+              select: "-_id",
+              populate: {
+                path: "author",
+                select: "-_id -password -following -followers -name -email",
+              },
+            },
+          ]);
+
+        return !addReply ? { message: "unaggregated reply" } : addReply;
+      }
+    }
+  } catch (err) {
+    console.log(err);
+    return { message: "Internal server error" };
   }
 };
 
@@ -211,6 +311,7 @@ const unfollow = async (user, args) => {
 
         if (stopFollowing && removeFollower) {
           return stopFollowing;
+        
         } else {
           return { message: `ERROR AL DEJAR DE SEGUIR A ${toUnFollow.username}` };
         }
@@ -257,6 +358,15 @@ const actions = async (user, { command, args }) => {
         break;
         case 'unfollow':
           return await unfollow(user, args);
+        break;
+        case 'like_tweet':
+          return await like(user, args); 
+        break;
+        case 'dislike_tweet':
+          return await like(user,args);
+        break;
+        case 'reply_tweet':
+          return await makeReply(user, args);
         break;
         default:
           return { message: 'COMANDO INVALIDO' };
