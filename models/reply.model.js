@@ -1,13 +1,11 @@
-'use strict'
+"use strict";
 
-const Mongoose = require('mongoose');
+const Mongoose = require("mongoose");
 const Schema = Mongoose.Schema;
 
-const ReplySchema = Schema(
-  {
-    author: { type: Schema.Types.ObjectId, ref: 'user' },
-    content: String,
-  }
-);
+const ReplySchema = Schema({
+  author: { type: Schema.Types.ObjectId, ref: "user" },
+  content: String,
+});
 
-module.exports = Mongoose.model('reply', ReplySchema);
+module.exports = Mongoose.model("reply", ReplySchema);
