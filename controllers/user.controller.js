@@ -5,10 +5,7 @@ const User = require('../models/user.model');
 const Tweet = require('../models/tweet.model');
 const Like = require('../models/likes.model');
 const Reply = require('../models/reply.model');
-<<<<<<< HEAD
 const Retweet = require('../models/retweet.model');
-=======
->>>>>>> d29f17368232473ea4c1d6d23aa2d0ea1d3ea5bf
 const jwt = require('../services/jwt');
 const {getAction} = require('twitter-command');
 
@@ -78,7 +75,6 @@ const login = async (args) => {
 
 const createTweet = async (user, args) => {
   try {
-<<<<<<< HEAD
     let newTweet = new Tweet();
     let like = new Like();
     newTweet.creator = user.sub;
@@ -101,89 +97,6 @@ const createTweet = async (user, args) => {
       else {
         return newTweetAdded;
       }
-=======
-    if (args[0] === "*") {
-      const allTweets = await Tweet.find({})
-        .populate("creator", "-password -following -followers -name -email")
-        .populate("likes", "-_id -interactors")
-        .populate("replies", "-_id");
-      if (!allTweets) return { message: "Unable to get tweets" };
-      else return allTweets;
-    } else {
-      const userFound = await User.findOne({ username: args[0] });
-      if (!userFound)
-        return { message: "The user with that username doesn't exist" };
-      else {
-        const tweets = await Tweet.find({ creator: userFound._id })
-          .populate("creator", "username")
-          .populate("likes", "-_id -interactors")
-          .populate([
-            {
-              path: "replies",
-              select: "-_id",
-              populate: {
-                path: "author",
-                select: "-_id -password -following -followers -name -email",
-              },
-            },
-          ]);
-
-        if (!tweets) return { message: "Unable to get tweets" };
-        else if (tweets.length === 0)
-          return { message: `${userFound.username} doesn't have tweets yet.` };
-        else return tweets;
-      }
-    }
-  } catch (err) {
-    console.log(err);
-    return { message: "Internal server Error" };
-  }
-
-};
-
-
-
-const doLike = async (id, userId) => {
-  try {
-    const liked = await Like.findOneAndUpdate(
-      { _id: id },
-      { $push: { interactors: userId }, $inc: { likes: 1 } }
-    );
-    if (!liked) return { message: "Error trying to like this tweet" };
-    else return { message: "You like this tweet" };
-  } catch (err) {
-    console.log(err);
-    return { message: "Internal server error" };
-  }
-};
-
-const dislike = async (id, userId) => {
-  try {
-    const disliked = await Like.findOneAndUpdate(
-      { _id: id },
-      { $pull: { interactors: userId }, $inc: { likes: -1 } }
-    );
-    if (!disliked) return { message: "Error trying to dislike this tweet" };
-    else return { message: "You don't like this tweet anymore" };
-  } catch (err) {
-    console.log(err);
-    return { message: "Internal server error" };
-  }
-};
-
-const like = async (user, args) => {
-  try {
-    const tweet = await Tweet.findById(args[0]);
-    if (!tweet) return { message: "Sorry that tweet doesn't exists" };
-    else {
-      const previusReactions = await Like.findOne({
-        $and: [{ _id: tweet.likes }, { interactors: { _id: user.sub } }],
-      });
-      if (!previusReactions) {
-        const toLike = await Like.findById(tweet.likes);
-        return await doLike(toLike._id, user.sub);
-      } else return await dislike(previusReactions._id, user.sub);
->>>>>>> d29f17368232473ea4c1d6d23aa2d0ea1d3ea5bf
     }
   } catch (err) {
     console.log(err);
@@ -191,7 +104,6 @@ const like = async (user, args) => {
   }
 };
 
-<<<<<<< HEAD
 const listTweets = async (args) => {
   try {
     if (args[0] === "*") {
@@ -208,30 +120,6 @@ const listTweets = async (args) => {
       else {
         const tweets = await Tweet.find({ creator: userFound._id })
           .populate("creator", "username")
-=======
-const makeReply = async (user, args) => {
-  try {
-    const newReply = new Reply();
-    const tweetFound = await Tweet.findById(args[1]);
-    if (!tweetFound) return { message: "Sorry, that tweet doesn't exists" };
-    else {
-      newReply.author = user.sub;
-      newReply.content = args[0];
-      const newReplyAdded = await newReply.save();
-      if (!newReplyAdded) return { message: "Error unable to save reply" };
-      else {
-        const addReply = await Tweet.findByIdAndUpdate(
-          tweetFound._id,
-          {
-            $push: { replies: newReplyAdded._id },
-          },
-          { new: true }
-        )
-          .populate(
-            "creator",
-            "-_id -password -following -followers -name -email"
-          )
->>>>>>> d29f17368232473ea4c1d6d23aa2d0ea1d3ea5bf
           .populate("likes", "-_id -interactors")
           .populate([
             {
@@ -244,23 +132,15 @@ const makeReply = async (user, args) => {
             },
           ]);
 
-<<<<<<< HEAD
         if (!tweets) return { message: "Unable to get tweets" };
         else if (tweets.length === 0)
           return { message: `${userFound.username} doesn't have tweets yet.` };
         else return tweets;
-=======
-        return !addReply ? { message: "unaggregated reply" } : addReply;
->>>>>>> d29f17368232473ea4c1d6d23aa2d0ea1d3ea5bf
       }
     }
   } catch (err) {
     console.log(err);
-<<<<<<< HEAD
     return { message: "Internal server Error" };
-=======
-    return { message: "Internal server error" };
->>>>>>> d29f17368232473ea4c1d6d23aa2d0ea1d3ea5bf
   }
 
 };
@@ -564,19 +444,11 @@ const actions = async (user, { command, args }) => {
         case 'like_tweet':
           return await like(user, args); 
         break;
-<<<<<<< HEAD
         case 'reply_tweet':
           return await reply(user, args);
         break;
         case 'retweet':
           return await retweet(user, args);
-=======
-        case 'dislike_tweet':
-          return await like(user,args);
-        break;
-        case 'reply_tweet':
-          return await makeReply(user, args);
->>>>>>> d29f17368232473ea4c1d6d23aa2d0ea1d3ea5bf
         break;
         default:
           return { message: 'COMANDO INVALIDO' };
@@ -588,10 +460,5 @@ const actions = async (user, { command, args }) => {
 };
 
 module.exports = {
-<<<<<<< HEAD
   commands
 };
-=======
-  commands,
-};
->>>>>>> d29f17368232473ea4c1d6d23aa2d0ea1d3ea5bf

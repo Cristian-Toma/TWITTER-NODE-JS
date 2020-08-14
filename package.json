@@ -19,11 +19,7 @@
     "jwt-simple-error-identify": "^1.1.0",
     "moment": "^2.26.0",
     "mongoose": "^5.9.18",
-<<<<<<< HEAD
     "twitter-command": "^1.0.8",
-=======
-    "twitter-command": "^1.0.7",
->>>>>>> d29f17368232473ea4c1d6d23aa2d0ea1d3ea5bf
     "unbracket": "^1.0.4"
   },
   "devDependencies": {
