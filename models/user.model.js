@@ -10,8 +10,6 @@ const UserSchema = Schema({
     password : String,
     followers : [{type:Schema.Types.ObjectId,ref: 'user'}],
     following : [{type:Schema.Types.ObjectId,ref: 'user'}]
-},{
-    versionKey:false
 });
 
 

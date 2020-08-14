@@ -3,6 +3,9 @@
 const bcrypt = require('bcrypt');
 const User = require('../models/user.model');
 const Tweet = require('../models/tweet.model');
+const Like = require('../models/likes.model');
+const Reply = require('../models/reply.model');
+const Retweet = require('../models/retweet.model');
 const jwt = require('../services/jwt');
 const {getAction} = require('twitter-command');
 
@@ -70,39 +73,76 @@ const login = async (args) => {
   }
 };
 
-const listTweets = async (args) => {
-  try {
-    const userFound = await User.findOne({ username: args[0] });
-    if (!userFound)
-      return { message: 'NO EXISTE ESE USUARIO' };
-    else {
-      const tweets = await Tweet.find({ creator: userFound._id }).populate(
-        'creator',
-        '-_id username'
-      );
-      if (!tweets) return { message: 'NO PUEDES VER LOS TWEETS' };
-      else if (tweets.length === 0)
-        return { message: `${userFound.username} AUN NO HAY TWEET'S` };
-      else return tweets;
-    }
-  } catch (err) {
-    return { message: 'ERROR EN EL SERVIDOR' };
-  }
-};
-
 const createTweet = async (user, args) => {
   try {
     let newTweet = new Tweet();
+    let like = new Like();
     newTweet.creator = user.sub;
     newTweet.date = new Date();
     newTweet.content = args[0];
 
-    const newTweetAdded = await (await newTweet.save()).populate('creator','-password -following -followers -email -_id').execPopulate();
-    if (!newTweetAdded) return { message: 'ERROR AL CREAR TU TWEET' };
-    else return newTweetAdded;
+    const reactionSaved = await like.save();
+    if (!reactionSaved) {
+      return {
+        message:
+          "Error, this tweet doesn't has an interaction object to save its likes",
+      };
+    } else {
+      newTweet.likes = reactionSaved._id;
+      const newTweetAdded = await (await newTweet.save())
+        .populate("creator", "-password -following -followers -name -email")
+        .populate("likes", "-_id -interactors")
+        .execPopulate();
+      if (!newTweetAdded) return { message: "Error adding new tweet" };
+      else {
+        return newTweetAdded;
+      }
+    }
   } catch (err) {
-    return { message: 'ERROR EN EL SERVIDOR' };
+    console.log(err);
+    return { message: "Internal server error" };
   }
+};
+
+const listTweets = async (args) => {
+  try {
+    if (args[0] === "*") {
+      const allTweets = await Tweet.find({})
+        .populate("creator", "-password -following -followers -name -email")
+        .populate("likes", "-_id -interactors")
+        .populate("replies", "-_id");
+      if (!allTweets) return { message: "Unable to get tweets" };
+      else return allTweets;
+    } else {
+      const userFound = await User.findOne({ username: args[0] });
+      if (!userFound)
+        return { message: "The user with that username doesn't exist" };
+      else {
+        const tweets = await Tweet.find({ creator: userFound._id })
+          .populate("creator", "username")
+          .populate("likes", "-_id -interactors")
+          .populate([
+            {
+              path: "replies",
+              select: "-_id",
+              populate: {
+                path: "author",
+                select: "-_id -password -following -followers -name -email",
+              },
+            },
+          ]);
+
+        if (!tweets) return { message: "Unable to get tweets" };
+        else if (tweets.length === 0)
+          return { message: `${userFound.username} doesn't have tweets yet.` };
+        else return tweets;
+      }
+    }
+  } catch (err) {
+    console.log(err);
+    return { message: "Internal server Error" };
+  }
+
 };
 
 const editNDelete = async (user, args, operation) => {
@@ -141,9 +181,7 @@ const editNDelete = async (user, args, operation) => {
 
 const profile = async (user, args) =>{
   try {
-      const following = await User.findOne({username: args[0] }).populate(
-          "following", "-following -password -followers -name -email",
-      ).populate("followers", "-followers -password -following -name -email")
+      const following = await User.findOne({username: args[0] }).populate("following", "-following -password -followers -name -email",).populate("followers", "-followers -password -following -name -email")
       if(!following){
           return {message: 'ESTE PERFIL NO EXISTE'}
       }else{
@@ -211,6 +249,7 @@ const unfollow = async (user, args) => {
 
         if (stopFollowing && removeFollower) {
           return stopFollowing;
+        
         } else {
           return { message: `ERROR AL DEJAR DE SEGUIR A ${toUnFollow.username}` };
         }
@@ -218,6 +257,150 @@ const unfollow = async (user, args) => {
     }
   } catch (err) {
     return { message: 'ERROR EN EL SERVIDOR'};
+  }
+};
+
+const doLike = async (id, userId) => {
+  try {
+    const liked = await Like.findOneAndUpdate(
+      { _id: id },
+      { $push: { interactors: userId }, $inc: { likes: 1 } }
+    );
+    if (!liked) return { message: "Error trying to like this tweet" };
+    else return { message: "You like this tweet" };
+  } catch (err) {
+    console.log(err);
+    return { message: "Internal server error" };
+  }
+};
+
+const dislike = async (id, userId) => {
+  try {
+    const disliked = await Like.findOneAndUpdate(
+      { _id: id },
+      { $pull: { interactors: userId }, $inc: { likes: -1 } }
+    );
+    if (!disliked) return { message: "Error trying to dislike this tweet" };
+    else return { message: "You don't like this tweet anymore" };
+  } catch (err) {
+    console.log(err);
+    return { message: "Internal server error" };
+  }
+};
+
+const like = async (user, args) => {
+  try {
+    const tweet = await Tweet.findById(args[0]);
+    if (!tweet) return { message: "Sorry that tweet doesn't exists" };
+    else {
+      const previusReactions = await Like.findOne({
+        $and: [{ _id: tweet.likes }, { interactors: { _id: user.sub } }],
+      });
+      if (!previusReactions) {
+        const toLike = await Like.findById(tweet.likes);
+        return await doLike(toLike._id, user.sub);
+      } else return await dislike(previusReactions._id, user.sub);
+    }
+  } catch (err) {
+    console.log(err);
+    return { message: "Internal server error" };
+  }
+};
+
+const reply = async (user, args) => {
+  try {
+    const newReply = new Reply();
+    const tweetFound = await Tweet.findById(args[1]);
+    if (!tweetFound) return { message: "Sorry, that tweet doesn't exists" };
+    else {
+      newReply.author = user.sub;
+      newReply.content = args[0];
+      const newReplyAdded = await newReply.save();
+      if (!newReplyAdded) return { message: "Error unable to save reply" };
+      else {
+        const addReply = await Tweet.findByIdAndUpdate(
+          tweetFound._id,
+          {
+            $push: { replies: newReplyAdded._id },
+          },
+          { new: true }
+        )
+          .populate(
+            "creator",
+            "-_id -password -following -followers -name -email"
+          )
+          .populate("likes", "-_id -interactors")
+          .populate([
+            {
+              path: "replies",
+              select: "-_id",
+              populate: {
+                path: "author",
+                select: "-_id -password -following -followers -name -email",
+              },
+            },
+          ]);
+
+        return !addReply ? { message: "unaggregated reply" } : addReply;
+      }
+    }
+  } catch (err) {
+    console.log(err);
+    return { message: "Internal server error" };
+  }
+};
+
+const retweet = async (user, args) => {
+  try {
+    const tweetExists = await Tweet.findById(args[1]);
+    if (!tweetExists) return { message: "That tweet doesn't exists" };
+    else {
+      const newRetweet = new Retweet();
+      newRetweet.creator = user.sub;
+
+      if (args[0] !== "") newRetweet.title = args[0];
+
+      const retweetAdded = await newRetweet.save();
+      if (!retweetAdded) return { message: "Retweet doesn't added" };
+      else {
+        const updateTweet = await Tweet.findByIdAndUpdate(
+          tweetExists._id,
+          {
+            $push: { retweets: retweetAdded._id },
+          },
+          { new: true }
+        )
+          .populate("creator", "username")
+          .populate("likes", "-_id -interactors")
+          .populate([
+            {
+              path: "replies",
+              select: "-_id",
+              populate: {
+                path: "author",
+                select: "-_id -password -following -followers -name -email",
+              },
+            },
+          ])
+          .populate([
+            {
+              path: "retweets",
+              select: "-_id",
+              populate: {
+                path: "creator",
+                select: "-_id -password -following -followers -name -email",
+              },
+            },
+          ]);
+
+        return !updateTweet
+          ? { message: "Unable to save retweet" }
+          : updateTweet;
+      }
+    }
+  } catch (err) {
+    console.log(err);
+    return { message: "Internal Server error" };
   }
 };
 
@@ -258,6 +441,15 @@ const actions = async (user, { command, args }) => {
         case 'unfollow':
           return await unfollow(user, args);
         break;
+        case 'like_tweet':
+          return await like(user, args); 
+        break;
+        case 'reply_tweet':
+          return await reply(user, args);
+        break;
+        case 'retweet':
+          return await retweet(user, args);
+        break;
         default:
           return { message: 'COMANDO INVALIDO' };
       }
@@ -268,5 +460,5 @@ const actions = async (user, { command, args }) => {
 };
 
 module.exports = {
-  commands,
+  commands
 };
