@@ -297,7 +297,7 @@ const like = async (user, args) => {
         $and: [{ _id: tweet.likes }, { interactors: { _id: user.sub } }],
       });
       if (!previusReactions) {
-        const toLike = await Like.findById(tweet.likes);
+        const toLike = await Like.findById(tweet._id);
         return await doLike(toLike._id, user.sub);
       } else return await dislike(previusReactions._id, user.sub);
     }
